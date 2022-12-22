@@ -24,12 +24,12 @@
 #ifndef WORD_COUNT_H
 #define WORD_COUNT_H
 
+#include <ctype.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
-#include <string.h>
-#include <ctype.h>
 #include <stdlib.h>
+#include <string.h>
 
 /*
  * Representation of a word count object and word count list object.
@@ -51,6 +51,7 @@ typedef struct word_count_list {
   struct list lst;
   pthread_mutex_t lock;
 } word_count_list_t;
+
 #else  /* PTHREADS */
 typedef struct list word_count_list_t;
 #endif /* PTHREADS */
@@ -85,6 +86,7 @@ word_count_t* add_word(word_count_list_t* wclist, char* word);
 void fprint_words(word_count_list_t* wclist, FILE* outfile);
 
 /* Sort a word count list using the provided comparator function. */
-void wordcount_sort(word_count_list_t* wclist, bool less(const word_count_t*, const word_count_t*));
+void wordcount_sort(word_count_list_t* wclist,
+                    bool less(const word_count_t*, const word_count_t*));
 
 #endif /* WORD_COUNT_H */
