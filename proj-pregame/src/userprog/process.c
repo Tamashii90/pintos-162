@@ -72,10 +72,17 @@ pid_t process_execute(const char* file_name) {
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* file_name_) {
-  char* file_name = (char*)file_name_;
+  char* args = (char*)file_name_;
+  char* space_start = strchr(args, ' ');
+  size_t args_len = strlen(args);
+  size_t name_len = space_start == NULL ? args_len : space_start - args; // if argc = 1 no spaces
+  char file_name[name_len + 1];
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
+
+  strlcpy(file_name, args, name_len + 1);
+  strlcpy(t->name, file_name, name_len + 1);
 
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
@@ -112,8 +119,76 @@ static void start_process(void* file_name_) {
     free(pcb_to_free);
   }
 
+  /* Setup argc and argv */
+  int argv_char_len = 0; // unlike args_len this only counts actual chars (no spaces)
+  int argc = 0;
+  char* token;
+  char* save_ptr;
+  char temp_name[args_len + 1];
+
+  // Calculate how many characters the arguments are
+  strlcpy(temp_name, args, args_len + 1);
+  for (token = strtok_r(temp_name, " ", &save_ptr); token != NULL;
+       token = strtok_r(NULL, " ", &save_ptr)) {
+    argc++;
+    argv_char_len += strlen(token) + 1; // make room for the null-terminator
+  }
+
+  char* argv[argc];
+
+  // Decrement the esp to start adding the characters
+  if_.esp -= argv_char_len;
+
+  // Add the actual characters and save their addresses in argv
+  strlcpy(temp_name, args, args_len + 1);
+  int i = 0;
+  for (token = strtok_r(temp_name, " ", &save_ptr); token != NULL;
+       token = strtok_r(NULL, " ", &save_ptr)) {
+    size_t len = strlen(token) + 1;
+    strlcpy(if_.esp, token, len);
+    argv[i] = if_.esp;
+    if_.esp += len;
+    i++;
+  }
+  // Return esp to its correct position
+  if_.esp -= argv_char_len;
+
+  // Calculate how much space the remaining values will take
+  int diff = sizeof(void*) + sizeof(int) + sizeof(char**) + argc * sizeof(char*) + sizeof(char*);
+  // Stack must be 16-byte aligned before calling _start
+  uint8_t stack_align = ((size_t)if_.esp - diff + sizeof(void*)) % 16;
+  // Decrement esp so we can start filling up the stack from the bottom up
+  if_.esp -= diff + stack_align;
+
+  // Add a random return address that won't actually be used
+  memset(if_.esp, 0x99, sizeof(void*));
+  if_.esp += sizeof(void*);
+
+  // Add argc value
+  *(int*)if_.esp = argc;
+  if_.esp += sizeof(int);
+
+  // Add argv (the address of argv[0]) - argv[0] is above current if_.esp
+  *(size_t*)if_.esp = (size_t)if_.esp + sizeof(char**);
+  if_.esp += sizeof(char**);
+
+  // Add argv elements
+  memcpy(if_.esp, &argv, sizeof(char*) * argc);
+  if_.esp += argc * sizeof(char*);
+
+  // argv array must be null-terminated
+  *(char*)if_.esp = '\0';
+  if_.esp += sizeof(char*);
+
+  // Add alignment value - a stack_align count of any value
+  memset(if_.esp, 0x55, stack_align);
+  if_.esp += stack_align;
+
+  // All values added. Return esp to its correct position
+  if_.esp -= diff + stack_align;
+
   /* Clean up. Exit on failure or jump to userspace */
-  palloc_free_page(file_name);
+  palloc_free_page(args); // see fn_copy in process_execute()
   if (!success) {
     sema_up(&temporary);
     thread_exit();
@@ -125,7 +200,6 @@ static void start_process(void* file_name_) {
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-  if_.esp -= 20;
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
 }

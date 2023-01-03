@@ -9,7 +9,7 @@
     int retval;                                                                                    \
     asm volatile("pushl %[number]; int $0x30; addl $4, %%esp"                                      \
                  : "=a"(retval)                                                                    \
-                 : [number] "i"(NUMBER)                                                            \
+                 : [ number ] "i"(NUMBER)                                                          \
                  : "memory");                                                                      \
     retval;                                                                                        \
   })
@@ -21,7 +21,7 @@
     int retval;                                                                                    \
     asm volatile("pushl %[arg0]; pushl %[number]; int $0x30; addl $8, %%esp"                       \
                  : "=a"(retval)                                                                    \
-                 : [number] "i"(NUMBER), [arg0] "g"(ARG0)                                          \
+                 : [ number ] "i"(NUMBER), [ arg0 ] "g"(ARG0)                                      \
                  : "memory");                                                                      \
     retval;                                                                                        \
   })
@@ -33,7 +33,7 @@
     float retval;                                                                                  \
     asm volatile("pushl %[arg0]; pushl %[number]; int $0x30; addl $8, %%esp"                       \
                  : "=a"(retval)                                                                    \
-                 : [number] "i"(NUMBER), [arg0] "g"(ARG0)                                          \
+                 : [ number ] "i"(NUMBER), [ arg0 ] "g"(ARG0)                                      \
                  : "memory");                                                                      \
     retval;                                                                                        \
   })
@@ -46,7 +46,7 @@
     asm volatile("pushl %[arg1]; pushl %[arg0]; "                                                  \
                  "pushl %[number]; int $0x30; addl $12, %%esp"                                     \
                  : "=a"(retval)                                                                    \
-                 : [number] "i"(NUMBER), [arg0] "r"(ARG0), [arg1] "r"(ARG1)                        \
+                 : [ number ] "i"(NUMBER), [ arg0 ] "r"(ARG0), [ arg1 ] "r"(ARG1)                  \
                  : "memory");                                                                      \
     retval;                                                                                        \
   })
@@ -59,7 +59,8 @@
     asm volatile("pushl %[arg2]; pushl %[arg1]; pushl %[arg0]; "                                   \
                  "pushl %[number]; int $0x30; addl $16, %%esp"                                     \
                  : "=a"(retval)                                                                    \
-                 : [number] "i"(NUMBER), [arg0] "r"(ARG0), [arg1] "r"(ARG1), [arg2] "r"(ARG2)      \
+                 : [ number ] "i"(NUMBER), [ arg0 ] "r"(ARG0), [ arg1 ] "r"(ARG1),                 \
+                   [ arg2 ] "r"(ARG2)                                                              \
                  : "memory");                                                                      \
     retval;                                                                                        \
   })
