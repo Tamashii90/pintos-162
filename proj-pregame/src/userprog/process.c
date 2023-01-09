@@ -24,6 +24,7 @@ static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
+static void setup_args(void** esp, char* args, size_t args_len);
 bool setup_thread(void (**eip)(void), void** esp);
 
 /* Initializes user programs in the system by ensuring the main
@@ -69,8 +70,7 @@ pid_t process_execute(const char* file_name) {
   return tid;
 }
 
-/* A thread function that loads a user process and starts it
-   running. */
+/* A thread function that loads a user process and starts it running. */
 static void start_process(void* file_name_) {
   char* args = (char*)file_name_;
   char* space_start = strchr(args, ' ');
@@ -119,73 +119,8 @@ static void start_process(void* file_name_) {
     free(pcb_to_free);
   }
 
-  /* Setup argc and argv */
-  int argv_char_len = 0; // unlike args_len this only counts actual chars (no spaces)
-  int argc = 0;
-  char* token;
-  char* save_ptr;
-  char temp_name[args_len + 1];
-
-  // Calculate how many characters the arguments are
-  strlcpy(temp_name, args, args_len + 1);
-  for (token = strtok_r(temp_name, " ", &save_ptr); token != NULL;
-       token = strtok_r(NULL, " ", &save_ptr)) {
-    argc++;
-    argv_char_len += strlen(token) + 1; // make room for the null-terminator
-  }
-
-  char* argv[argc];
-
-  // Decrement the esp to start adding the characters
-  if_.esp -= argv_char_len;
-
-  // Add the actual characters and save their addresses in argv
-  strlcpy(temp_name, args, args_len + 1);
-  int i = 0;
-  for (token = strtok_r(temp_name, " ", &save_ptr); token != NULL;
-       token = strtok_r(NULL, " ", &save_ptr)) {
-    size_t len = strlen(token) + 1;
-    strlcpy(if_.esp, token, len);
-    argv[i] = if_.esp;
-    if_.esp += len;
-    i++;
-  }
-  // Return esp to its correct position
-  if_.esp -= argv_char_len;
-
-  // Calculate how much space the remaining values will take
-  int diff = sizeof(void*) + sizeof(int) + sizeof(char**) + argc * sizeof(char*) + sizeof(char*);
-  // Stack must be 16-byte aligned before calling _start
-  uint8_t stack_align = ((size_t)if_.esp - diff + sizeof(void*)) % 16;
-  // Decrement esp so we can start filling up the stack from the bottom up
-  if_.esp -= diff + stack_align;
-
-  // Add a random return address that won't actually be used
-  memset(if_.esp, 0x99, sizeof(void*));
-  if_.esp += sizeof(void*);
-
-  // Add argc value
-  *(int*)if_.esp = argc;
-  if_.esp += sizeof(int);
-
-  // Add argv (the address of argv[0]) - argv[0] is above current if_.esp
-  *(size_t*)if_.esp = (size_t)if_.esp + sizeof(char**);
-  if_.esp += sizeof(char**);
-
-  // Add argv elements
-  memcpy(if_.esp, &argv, sizeof(char*) * argc);
-  if_.esp += argc * sizeof(char*);
-
-  // argv array must be null-terminated
-  *(char*)if_.esp = '\0';
-  if_.esp += sizeof(char*);
-
-  // Add alignment value - a stack_align count of any value
-  memset(if_.esp, 0x55, stack_align);
-  if_.esp += stack_align;
-
-  // All values added. Return esp to its correct position
-  if_.esp -= diff + stack_align;
+  /* Place arguments on the stack */
+  setup_args(&if_.esp, args, args_len);
 
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(args); // see fn_copy in process_execute()
@@ -553,6 +488,77 @@ static bool setup_stack(void** esp) {
       palloc_free_page(kpage);
   }
   return success;
+}
+
+static void setup_args(void** esp, char* args, size_t args_len) {
+  int argv_char_len = 0; // unlike args_len this counts actual chars (no spaces)
+  int argc = 0;
+  char* token;
+  char* save_ptr;
+  char temp_name[args_len + 1];
+  void* stack_ptr = *esp;
+
+  // Calculate how many characters the arguments are
+  strlcpy(temp_name, args, args_len + 1);
+  for (token = strtok_r(temp_name, " ", &save_ptr); token != NULL;
+       token = strtok_r(NULL, " ", &save_ptr)) {
+    argc++;
+    argv_char_len += strlen(token) + 1; // make room for the null-terminator
+  }
+
+  char* argv[argc];
+
+  // Decrement to start adding the characters
+  stack_ptr -= argv_char_len;
+
+  // Add the actual characters and save their addresses in argv
+  strlcpy(temp_name, args, args_len + 1);
+  int i = 0;
+  for (token = strtok_r(temp_name, " ", &save_ptr); token != NULL;
+       token = strtok_r(NULL, " ", &save_ptr)) {
+    size_t len = strlen(token) + 1;
+    strlcpy(stack_ptr, token, len);
+    argv[i] = stack_ptr;
+    stack_ptr += len;
+    i++;
+  }
+  // Return stack_ptr to its correct position
+  stack_ptr -= argv_char_len;
+
+  // Calculate how much space the remaining values will take
+  int diff = sizeof(void*) + sizeof(int) + sizeof(char**) + argc * sizeof(char*) + sizeof(char*);
+  // Stack must be 16-byte aligned before calling _start
+  uint8_t stack_align = ((size_t)stack_ptr - diff + sizeof(void*)) % 16;
+  // Decrement so we can start filling up the stack from the bottom up
+  stack_ptr -= diff + stack_align;
+
+  // Add a random return address that won't actually be used
+  memset(stack_ptr, 0x99, sizeof(void*));
+  stack_ptr += sizeof(void*);
+
+  // Add argc value
+  *(int*)stack_ptr = argc;
+  stack_ptr += sizeof(int);
+
+  // Add argv (the address of argv[0]) - argv[0] is above current stack_ptr
+  *(size_t*)stack_ptr = (size_t)stack_ptr + sizeof(char**);
+  stack_ptr += sizeof(char**);
+
+  // Add argv elements
+  memcpy(stack_ptr, &argv, sizeof(char*) * argc);
+  stack_ptr += argc * sizeof(char*);
+
+  // argv array must be null-terminated
+  *(char*)stack_ptr = '\0';
+  stack_ptr += sizeof(char*);
+
+  // Add alignment value - a stack_align count of any value
+  memset(stack_ptr, 0x55, stack_align);
+  stack_ptr += stack_align;
+
+  // All values added. Set esp to the correct position
+  stack_ptr -= diff + stack_align;
+  *esp = stack_ptr;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
