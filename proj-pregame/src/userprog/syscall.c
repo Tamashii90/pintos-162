@@ -11,7 +11,7 @@ static void syscall_handler(struct intr_frame*);
 
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 
-static void sys_exit(int status) {
+void sys_exit(int status) {
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
   process_exit();
 }
@@ -39,6 +39,8 @@ static int sys_write(int fd, void* buffer, unsigned length) {
   return -1;
 }
 
+static int sys_practice(int val) { return val + 1; }
+
 static void syscall_handler(struct intr_frame* f) {
   uint32_t* args = ((uint32_t*)f->esp);
   uint32_t call_nr = args[0];
@@ -53,6 +55,12 @@ static void syscall_handler(struct intr_frame* f) {
     case SYS_WRITE: {
       validate_addr((void*)args[2], (unsigned)args[3]);
       f->eax = (uint32_t)sys_write((int)args[1], (void*)args[2], (unsigned)args[3]);
+      break;
+    }
+
+    case SYS_PRACTICE: {
+      validate_addr(&args[1], sizeof(int));
+      f->eax = sys_practice((int)args[1]);
       break;
     }
 
