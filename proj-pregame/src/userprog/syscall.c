@@ -1,4 +1,5 @@
 #include "userprog/syscall.h"
+#include "devices/shutdown.h"
 #include "userprog/pagedir.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -49,6 +50,11 @@ static void syscall_handler(struct intr_frame* f) {
     case SYS_EXIT: {
       validate_addr(&args[1], sizeof(uint32_t));
       sys_exit((int)args[1]);
+      break;
+    }
+    case SYS_HALT: {
+      shutdown();
+      NOT_REACHED();
       break;
     }
 
