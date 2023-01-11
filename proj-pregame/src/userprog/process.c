@@ -73,9 +73,8 @@ pid_t process_execute(const char* file_name) {
 /* A thread function that loads a user process and starts it running. */
 static void start_process(void* file_name_) {
   char* args = (char*)file_name_;
-  char* space_start = strchr(args, ' ');
   size_t args_len = strlen(args);
-  size_t name_len = space_start == NULL ? args_len : space_start - args; // if argc = 1 no spaces
+  size_t name_len = strcspn(args, " ");
   char file_name[name_len + 1];
   struct thread* t = thread_current();
   struct intr_frame if_;
