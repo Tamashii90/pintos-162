@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include "devices/shutdown.h"
 #include "filesys/directory.h"
+#include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "userprog/pagedir.h"
 #include <stdio.h>
@@ -66,6 +67,18 @@ static int sys_open(char* file_name) {
   return pcb->curr_fd++;
 }
 
+void sys_close(int fd) {
+  struct process* pcb = thread_current()->pcb;
+  if (fd < 2 || fd >= pcb->curr_fd) {
+    sys_exit(-1);
+  }
+  struct file* file = pcb->open_files[fd];
+  if (file == NULL)
+    sys_exit(-1);
+  file_close(file);
+  pcb->open_files[fd] = NULL;
+}
+
 static int sys_practice(int val) { return val + 1; }
 
 static void syscall_handler(struct intr_frame* f) {
@@ -99,6 +112,11 @@ static void syscall_handler(struct intr_frame* f) {
     case SYS_OPEN: {
       validate_file_name((char*)args[1]);
       f->eax = (uint32_t)sys_open((char*)args[1]);
+      break;
+    }
+
+    case SYS_CLOSE: {
+      sys_close(args[1]);
       break;
     }
 

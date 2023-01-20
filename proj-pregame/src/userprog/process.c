@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -164,6 +165,12 @@ void process_exit(void) {
     NOT_REACHED();
   }
 
+  // Close all open files
+  for (int i = 2; i < cur->pcb->curr_fd; i++) {
+    if (cur->pcb->open_files[i] == NULL)
+      continue;
+    sys_close(i);
+  }
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pcb->pagedir;
