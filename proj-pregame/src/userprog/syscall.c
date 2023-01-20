@@ -1,5 +1,7 @@
 #include "userprog/syscall.h"
 #include "devices/shutdown.h"
+#include "filesys/directory.h"
+#include "filesys/filesys.h"
 #include "userprog/pagedir.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -32,12 +34,36 @@ static void validate_addr(void* addr, unsigned size) {
   }
 }
 
+static void validate_file_name(char* name) {
+  uint32_t* pd = thread_current()->pcb->pagedir;
+  char* temp = name;
+  size_t i = 0;
+  while (true) {
+    if (i == NAME_MAX || temp == NULL || !is_user_vaddr(temp) || pagedir_get_page(pd, temp) == NULL)
+      sys_exit(-1);
+    if (*temp == '\0')
+      break;
+    i++;
+    temp++;
+  }
+}
+
 static int sys_write(int fd, void* buffer, unsigned length) {
   if (fd == STDOUT_FILENO) {
     putbuf(buffer, length);
     return length;
   }
   return -1;
+}
+
+static int sys_open(char* file_name) {
+  struct process* pcb = thread_current()->pcb;
+  struct file* file = filesys_open(file_name);
+  if (file == NULL) {
+    return -1;
+  }
+  pcb->open_files[pcb->curr_fd] = file;
+  return pcb->curr_fd++;
 }
 
 static int sys_practice(int val) { return val + 1; }
@@ -58,15 +84,21 @@ static void syscall_handler(struct intr_frame* f) {
       break;
     }
 
+    case SYS_PRACTICE: {
+      validate_addr(&args[1], sizeof(int));
+      f->eax = sys_practice((int)args[1]);
+      break;
+    }
+
     case SYS_WRITE: {
       validate_addr((void*)args[2], (unsigned)args[3]);
       f->eax = (uint32_t)sys_write((int)args[1], (void*)args[2], (unsigned)args[3]);
       break;
     }
 
-    case SYS_PRACTICE: {
-      validate_addr(&args[1], sizeof(int));
-      f->eax = sys_practice((int)args[1]);
+    case SYS_OPEN: {
+      validate_file_name((char*)args[1]);
+      f->eax = (uint32_t)sys_open((char*)args[1]);
       break;
     }
 

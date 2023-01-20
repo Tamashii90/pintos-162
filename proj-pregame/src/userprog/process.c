@@ -97,6 +97,7 @@ static void start_process(void* file_name_) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+    t->pcb->curr_fd = 2; /* 0 and 1 are for STDIN STDOUT */
   }
 
   /* Initialize interrupt frame and load executable. */
