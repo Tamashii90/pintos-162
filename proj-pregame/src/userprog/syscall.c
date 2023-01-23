@@ -116,6 +116,24 @@ static int sys_filesize(int fd) {
   return file_length(file);
 }
 
+static void sys_seek(int fd, unsigned position) {
+  struct process* pcb = thread_current()->pcb;
+  struct file* file = pcb->open_files[fd];
+  if (file == NULL || fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+    sys_exit(-1);
+  }
+  file_seek(file, position);
+}
+
+static unsigned sys_tell(int fd) {
+  struct process* pcb = thread_current()->pcb;
+  struct file* file = pcb->open_files[fd];
+  if (file == NULL || fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+    sys_exit(-1);
+  }
+  return file_tell(file);
+}
+
 static int sys_practice(int val) { return val + 1; }
 
 static bool sys_create(char* file_name, unsigned initial_size) {
@@ -160,6 +178,18 @@ static void syscall_handler(struct intr_frame* f) {
     case SYS_FILESIZE: {
       validate_fd((int)args[1]);
       f->eax = (uint32_t)sys_filesize((int)args[1]);
+      break;
+    }
+
+    case SYS_SEEK: {
+      validate_fd((int)args[1]);
+      sys_seek((int)args[1], (unsigned)args[2]);
+      break;
+    }
+
+    case SYS_TELL: {
+      validate_fd((int)args[1]);
+      f->eax = (uint32_t)sys_tell((int)args[1]);
       break;
     }
 
