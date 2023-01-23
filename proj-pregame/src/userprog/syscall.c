@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include "devices/shutdown.h"
+#include "devices/input.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -49,12 +50,35 @@ static void validate_file_name(char* name) {
   }
 }
 
+static void validate_fd(int fd) {
+  int curr_fd = thread_current()->pcb->curr_fd;
+  if (fd < 0 || fd >= curr_fd) {
+    sys_exit(-1);
+  }
+}
+
 static int sys_write(int fd, void* buffer, unsigned length) {
   if (fd == STDOUT_FILENO) {
     putbuf(buffer, length);
     return length;
   }
   return -1;
+}
+
+static int sys_read(int fd, void* buffer, unsigned size) {
+  struct process* pcb = thread_current()->pcb;
+  struct file* file = pcb->open_files[fd];
+  if (fd == STDOUT_FILENO || file == NULL) {
+    return -1;
+  }
+  if (fd == STDIN_FILENO) {
+    char input;
+    for (size_t i = 0; i < size; i++) {
+      input = input_getc();
+      ((char*)buffer)[i] = input;
+    }
+  }
+  return file_read(file, buffer, size);
 }
 
 static int sys_open(char* file_name) {
@@ -69,20 +93,31 @@ static int sys_open(char* file_name) {
 
 void sys_close(int fd) {
   struct process* pcb = thread_current()->pcb;
-  if (fd < 2 || fd >= pcb->curr_fd) {
-    sys_exit(-1);
-  }
   struct file* file = pcb->open_files[fd];
-  if (file == NULL)
+  // No closing STDOUT and STDIN
+  if (fd < 2 || file == NULL)
     sys_exit(-1);
   file_close(file);
   pcb->open_files[fd] = NULL;
 }
 
+static int sys_filesize(int fd) {
+  struct process* pcb = thread_current()->pcb;
+  struct file* file = pcb->open_files[fd];
+  if (file == NULL) {
+    return -1;
+  }
+  return file_length(file);
+}
+
 static int sys_practice(int val) { return val + 1; }
 
 static void syscall_handler(struct intr_frame* f) {
+  uint32_t* pd = thread_current()->pcb->pagedir;
   uint32_t* args = ((uint32_t*)f->esp);
+  if (args == NULL || !is_user_vaddr(args) || pagedir_get_page(pd, args) == NULL) {
+    sys_exit(-1);
+  }
   uint32_t call_nr = args[0];
 
   switch (call_nr) {
@@ -116,7 +151,21 @@ static void syscall_handler(struct intr_frame* f) {
     }
 
     case SYS_CLOSE: {
+      validate_fd((int)args[1]);
       sys_close(args[1]);
+      break;
+    }
+
+    case SYS_FILESIZE: {
+      validate_fd((int)args[1]);
+      f->eax = (uint32_t)sys_filesize((int)args[1]);
+      break;
+    }
+
+    case SYS_READ: {
+      validate_addr((void*)args[2], (unsigned)args[3]);
+      validate_fd((int)args[1]);
+      f->eax = (uint32_t)sys_read((int)args[1], (void*)args[2], (unsigned)args[3]);
       break;
     }
 
