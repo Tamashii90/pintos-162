@@ -113,11 +113,8 @@ static int sys_filesize(int fd) {
 static int sys_practice(int val) { return val + 1; }
 
 static void syscall_handler(struct intr_frame* f) {
-  uint32_t* pd = thread_current()->pcb->pagedir;
   uint32_t* args = ((uint32_t*)f->esp);
-  if (args == NULL || !is_user_vaddr(args) || pagedir_get_page(pd, args) == NULL) {
-    sys_exit(-1);
-  }
+  validate_addr(args, sizeof(int));
   uint32_t call_nr = args[0];
 
   switch (call_nr) {
