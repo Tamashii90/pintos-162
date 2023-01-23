@@ -98,7 +98,7 @@ static void start_process(void* file_name_) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
-    t->pcb->curr_fd = 2; /* 0 and 1 are for STDIN STDOUT */
+    t->pcb->curr_fd = 3; /* 0, 1, and 2 are for STDIN, STDOUT, and process's exe */
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -165,11 +165,14 @@ void process_exit(void) {
     NOT_REACHED();
   }
 
-  // Close all open files
+  // Close all open files INCLUDING process's executable
   for (int i = 2; i < cur->pcb->curr_fd; i++) {
-    if (cur->pcb->open_files[i] == NULL)
-      continue;
-    sys_close(i);
+    struct process* pcb = cur->pcb;
+    struct file* file = pcb->open_files[i];
+    if (pcb->open_files[i] != NULL) {
+      file_close(file);
+      pcb->open_files[i] = NULL;
+    }
   }
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -301,6 +304,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
   /* Open executable file. */
   file = filesys_open(file_name);
+  t->pcb->open_files[2] = file;
   if (file == NULL) {
     printf("load: %s: open failed\n", file_name);
     goto done;
@@ -378,7 +382,6 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close(file);
   return success;
 }
 

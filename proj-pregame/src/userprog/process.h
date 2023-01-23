@@ -27,8 +27,8 @@ struct process {
   uint32_t* pagedir;            /* Page directory. */
   char process_name[16];        /* Name of the main thread */
   struct thread* main_thread;   /* Pointer to main thread */
-  struct file* open_files[130]; /* Table of open files: fd ---> struct file* */
-  int curr_fd;                  /* Last allocated fd. Starts at 2. */
+  struct file* open_files[131]; /* Table of open files: fd ---> struct file* */
+  int curr_fd;                  /* Last allocated fd. Starts at 3. */
 };
 
 void userprog_init(void);
