@@ -140,6 +140,8 @@ static bool sys_create(char* file_name, unsigned initial_size) {
   return filesys_create(file_name, initial_size);
 }
 
+static bool sys_remove(const char* file) { return filesys_remove(file); }
+
 static void syscall_handler(struct intr_frame* f) {
   uint32_t* args = ((uint32_t*)f->esp);
   validate_addr(args, sizeof(int));
@@ -166,6 +168,12 @@ static void syscall_handler(struct intr_frame* f) {
     case SYS_CREATE: {
       validate_file_name((char*)args[1]);
       f->eax = (uint32_t)sys_create((char*)args[1], (unsigned)args[2]);
+      break;
+    }
+
+    case SYS_REMOVE: {
+      validate_file_name((char*)args[1]);
+      f->eax = (uint32_t)sys_remove((char*)args[1]);
       break;
     }
 
