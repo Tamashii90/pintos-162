@@ -58,11 +58,16 @@ static void validate_fd(int fd) {
 }
 
 static int sys_write(int fd, void* buffer, unsigned length) {
+  struct process* pcb = thread_current()->pcb;
+  struct file* file = pcb->open_files[fd];
+  if (fd == STDIN_FILENO) {
+    sys_exit(-1);
+  }
   if (fd == STDOUT_FILENO) {
     putbuf(buffer, length);
     return length;
   }
-  return -1;
+  return (int)file_write(file, buffer, length);
 }
 
 static int sys_read(int fd, void* buffer, unsigned size) {
@@ -95,8 +100,9 @@ void sys_close(int fd) {
   struct process* pcb = thread_current()->pcb;
   struct file* file = pcb->open_files[fd];
   // No closing STDOUT and STDIN
-  if (fd < 2 || file == NULL)
+  if (fd < 2 || file == NULL) {
     sys_exit(-1);
+  }
   file_close(file);
   pcb->open_files[fd] = NULL;
 }
@@ -111,6 +117,10 @@ static int sys_filesize(int fd) {
 }
 
 static int sys_practice(int val) { return val + 1; }
+
+static bool sys_create(char* file_name, unsigned initial_size) {
+  return filesys_create(file_name, initial_size);
+}
 
 static void syscall_handler(struct intr_frame* f) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -136,6 +146,7 @@ static void syscall_handler(struct intr_frame* f) {
     }
 
     case SYS_WRITE: {
+      validate_fd((int)args[1]);
       validate_addr((void*)args[2], (unsigned)args[3]);
       f->eax = (uint32_t)sys_write((int)args[1], (void*)args[2], (unsigned)args[3]);
       break;
@@ -160,9 +171,15 @@ static void syscall_handler(struct intr_frame* f) {
     }
 
     case SYS_READ: {
-      validate_addr((void*)args[2], (unsigned)args[3]);
       validate_fd((int)args[1]);
+      validate_addr((void*)args[2], (unsigned)args[3]);
       f->eax = (uint32_t)sys_read((int)args[1], (void*)args[2], (unsigned)args[3]);
+      break;
+    }
+
+    case SYS_CREATE: {
+      validate_file_name((char*)args[1]);
+      f->eax = (uint32_t)sys_create((char*)args[1], (unsigned)args[2]);
       break;
     }
 
