@@ -145,22 +145,15 @@ static void syscall_handler(struct intr_frame* f) {
       break;
     }
 
-    case SYS_WRITE: {
-      validate_fd((int)args[1]);
-      validate_addr((void*)args[2], (unsigned)args[3]);
-      f->eax = (uint32_t)sys_write((int)args[1], (void*)args[2], (unsigned)args[3]);
+    case SYS_CREATE: {
+      validate_file_name((char*)args[1]);
+      f->eax = (uint32_t)sys_create((char*)args[1], (unsigned)args[2]);
       break;
     }
 
     case SYS_OPEN: {
       validate_file_name((char*)args[1]);
       f->eax = (uint32_t)sys_open((char*)args[1]);
-      break;
-    }
-
-    case SYS_CLOSE: {
-      validate_fd((int)args[1]);
-      sys_close(args[1]);
       break;
     }
 
@@ -177,9 +170,16 @@ static void syscall_handler(struct intr_frame* f) {
       break;
     }
 
-    case SYS_CREATE: {
-      validate_file_name((char*)args[1]);
-      f->eax = (uint32_t)sys_create((char*)args[1], (unsigned)args[2]);
+    case SYS_WRITE: {
+      validate_fd((int)args[1]);
+      validate_addr((void*)args[2], (unsigned)args[3]);
+      f->eax = (uint32_t)sys_write((int)args[1], (void*)args[2], (unsigned)args[3]);
+      break;
+    }
+
+    case SYS_CLOSE: {
+      validate_fd((int)args[1]);
+      sys_close(args[1]);
       break;
     }
 
