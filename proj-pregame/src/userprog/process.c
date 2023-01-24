@@ -120,8 +120,10 @@ static void start_process(void* file_name_) {
     free(pcb_to_free);
   }
 
-  /* Place arguments on the stack */
-  setup_args(&if_.esp, args, args_len);
+  if (success) {
+    /* Place arguments on the stack */
+    setup_args(&if_.esp, args, args_len);
+  }
 
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(args); // see fn_copy in process_execute()
