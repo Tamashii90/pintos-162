@@ -2,6 +2,7 @@
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,7 @@
 #include "threads/vaddr.h"
 
 static struct semaphore temporary;
+static size_t stack_offset = 0;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
@@ -151,9 +153,9 @@ static void start_process(void* file_name_) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid UNUSED) {
+int process_wait(pid_t child_pid) {
   sema_down(&temporary);
-  return 0;
+  return child_pid == -1 ? -1 : 0;
 }
 
 /* Free the current process's resources. */
@@ -496,9 +498,9 @@ static bool setup_stack(void** esp) {
 
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
-    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
+    success = install_page(((uint8_t*)PHYS_BASE) - stack_offset - PGSIZE, kpage, true);
     if (success)
-      *esp = PHYS_BASE;
+      *esp = PHYS_BASE - stack_offset;
     else
       palloc_free_page(kpage);
   }
@@ -574,6 +576,7 @@ static void setup_args(void** esp, char* args, size_t args_len) {
   // All values added. Set esp to the correct position
   stack_ptr -= diff + stack_align;
   *esp = stack_ptr;
+  stack_offset += PHYS_BASE - stack_ptr;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

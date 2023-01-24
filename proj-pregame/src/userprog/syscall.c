@@ -5,6 +5,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "userprog/pagedir.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
@@ -142,6 +143,9 @@ static bool sys_create(char* file_name, unsigned initial_size) {
 
 static bool sys_remove(const char* file) { return filesys_remove(file); }
 
+static pid_t sys_exec(const char* cmd_line) { return process_execute(cmd_line); }
+static int sys_wait(pid_t child_pid) { return process_wait(child_pid); }
+
 static void syscall_handler(struct intr_frame* f) {
   uint32_t* args = ((uint32_t*)f->esp);
   validate_addr(args, sizeof(int));
@@ -153,6 +157,7 @@ static void syscall_handler(struct intr_frame* f) {
       sys_exit((int)args[1]);
       break;
     }
+
     case SYS_HALT: {
       shutdown();
       NOT_REACHED();
@@ -162,6 +167,17 @@ static void syscall_handler(struct intr_frame* f) {
     case SYS_PRACTICE: {
       validate_addr(&args[1], sizeof(int));
       f->eax = sys_practice((int)args[1]);
+      break;
+    }
+
+    case SYS_EXEC: {
+      validate_file_name((char*)args[1]);
+      f->eax = (uint32_t)sys_exec((char*)args[1]);
+      break;
+    }
+
+    case SYS_WAIT: {
+      f->eax = (uint32_t)sys_wait((pid_t)args[1]);
       break;
     }
 
