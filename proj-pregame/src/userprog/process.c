@@ -23,7 +23,7 @@
 #include "threads/vaddr.h"
 
 static struct semaphore temporary;
-static size_t stack_offset = 0;
+static size_t process_cnt = 0;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
@@ -125,6 +125,7 @@ static void start_process(void* file_name_) {
   if (success) {
     /* Place arguments on the stack */
     setup_args(&if_.esp, args, args_len);
+    process_cnt++;
   }
 
   /* Clean up. Exit on failure or jump to userspace */
@@ -357,13 +358,11 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
           uint32_t page_offset = phdr.p_vaddr & PGMASK;
           uint32_t read_bytes, zero_bytes;
           if (phdr.p_filesz > 0) {
-            /* Normal segment.
-                     Read initial part from disk and zero the rest. */
+            /* Normal segment. Read initial part from disk and zero the rest. */
             read_bytes = page_offset + phdr.p_filesz;
             zero_bytes = (ROUND_UP(page_offset + phdr.p_memsz, PGSIZE) - read_bytes);
           } else {
-            /* Entirely zero.
-                     Don't read anything from disk. */
+            /* Entirely zero. Don't read anything from disk. */
             read_bytes = 0;
             zero_bytes = ROUND_UP(page_offset + phdr.p_memsz, PGSIZE);
           }
@@ -498,9 +497,9 @@ static bool setup_stack(void** esp) {
 
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
-    success = install_page(((uint8_t*)PHYS_BASE) - stack_offset - PGSIZE, kpage, true);
+    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE * (process_cnt + 1), kpage, true);
     if (success)
-      *esp = PHYS_BASE - stack_offset;
+      *esp = PHYS_BASE - process_cnt * PGSIZE;
     else
       palloc_free_page(kpage);
   }
@@ -576,7 +575,6 @@ static void setup_args(void** esp, char* args, size_t args_len) {
   // All values added. Set esp to the correct position
   stack_ptr -= diff + stack_align;
   *esp = stack_ptr;
-  stack_offset += PHYS_BASE - stack_ptr;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
