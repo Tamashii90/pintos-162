@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "list.h"
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -22,8 +23,14 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-static struct semaphore temporary;
+struct argument {
+  char* file_name;
+  struct process* parent_proc;
+};
+struct semaphore temporary;
+tid_t loaded;
 static size_t process_cnt = 0;
+static bool load_success = true;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
@@ -46,8 +53,17 @@ void userprog_init(void) {
   t->pcb = calloc(sizeof(struct process), 1);
   success = t->pcb != NULL;
 
+  t->pcb->cond = malloc(sizeof(struct condition));
+  t->pcb->lock = malloc(sizeof(struct lock));
+  t->pcb->children = malloc(sizeof(struct list));
+  success = t->pcb->lock != NULL && t->pcb->cond != NULL && t->pcb->children != NULL;
+
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
+  strlcpy(t->pcb->process_name, "main", 4 + 1);
+  lock_init(t->pcb->lock);
+  cond_init(t->pcb->cond);
+  list_init(t->pcb->children);
 }
 
 /* Starts a new thread running a user program loaded from
@@ -55,10 +71,11 @@ void userprog_init(void) {
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
 pid_t process_execute(const char* file_name) {
+  struct argument arg;
+  struct process* pcb = thread_current()->pcb;
   char* fn_copy;
   tid_t tid;
 
-  sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -66,16 +83,27 @@ pid_t process_execute(const char* file_name) {
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
 
+  arg.file_name = fn_copy;
+  arg.parent_proc = pcb;
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, &arg);
+  if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
+    return tid;
+  }
+  lock_acquire(pcb->lock);
+  while (loaded != tid)
+    cond_wait(pcb->cond, pcb->lock);
+  tid = load_success ? tid : TID_ERROR;
+  lock_release(pcb->lock);
   return tid;
 }
 
 /* A thread function that loads a user process and starts it running. */
-static void start_process(void* file_name_) {
-  char* args = (char*)file_name_;
+static void start_process(void* arg_) {
+  struct argument* arg = (struct argument*)arg_;
+  char* args = arg->file_name;
   size_t args_len = strlen(args);
   size_t name_len = strcspn(args, " ");
   char file_name[name_len + 1];
@@ -90,7 +118,13 @@ static void start_process(void* file_name_) {
   struct process* new_pcb = malloc(sizeof(struct process));
   success = pcb_success = new_pcb != NULL;
 
-  /* Initialize process control block */
+  if (success) {
+    new_pcb->cond = malloc(sizeof(struct condition));
+    new_pcb->lock = malloc(sizeof(struct lock));
+    new_pcb->children = malloc(sizeof(struct list));
+    success = new_pcb->cond != NULL && new_pcb->lock != NULL && new_pcb->children != NULL;
+  }
+
   if (success) {
     // Ensure that timer_interrupt() -> schedule() -> process_activate()
     // does not try to activate our uninitialized pagedir
@@ -101,6 +135,17 @@ static void start_process(void* file_name_) {
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
     t->pcb->curr_fd = 3; /* 0, 1, and 2 are for STDIN, STDOUT, and process's exe */
+
+    t->pcb->parent_proc = arg->parent_proc;
+    lock_init(t->pcb->lock);
+    cond_init(t->pcb->cond);
+    list_init(t->pcb->children);
+
+    struct child* child = malloc(sizeof(struct child));
+    child->pid = thread_tid();
+    child->exit_code = EXIT_ONGOING;
+    child->elem = (struct list_elem){NULL, NULL};
+    list_push_back(arg->parent_proc->children, &child->elem);
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -129,11 +174,17 @@ static void start_process(void* file_name_) {
   }
 
   /* Clean up. Exit on failure or jump to userspace */
-  palloc_free_page(args); // see fn_copy in process_execute()
+  palloc_free_page(args);
+  lock_acquire(arg->parent_proc->lock);
+  loaded = t->tid;
   if (!success) {
-    sema_up(&temporary);
-    thread_exit();
+    load_success = false;
+    cond_signal(arg->parent_proc->cond, arg->parent_proc->lock);
+    lock_release(arg->parent_proc->lock);
+    process_exit();
   }
+  cond_signal(arg->parent_proc->cond, arg->parent_proc->lock);
+  lock_release(arg->parent_proc->lock);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -155,8 +206,21 @@ static void start_process(void* file_name_) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid) {
-  sema_down(&temporary);
-  return child_pid == -1 ? -1 : 0;
+  struct process* pcb = thread_current()->pcb;
+  struct child* child = child_find(pcb->children, child_pid);
+  int code = 0;
+
+  if (child == NULL) {
+    return -1;
+  }
+  lock_acquire(pcb->lock);
+  while (child->exit_code == EXIT_ONGOING)
+    cond_wait(pcb->cond, pcb->lock);
+  list_remove(&child->elem);
+  lock_release(pcb->lock);
+  code = child->exit_code;
+  free(child);
+  return code;
 }
 
 /* Free the current process's resources. */
@@ -170,6 +234,13 @@ void process_exit(void) {
     NOT_REACHED();
   }
 
+  // Free all processes that weren't waited for
+  while (!list_empty(cur->pcb->children)) {
+    struct list_elem* e = list_pop_front(cur->pcb->children);
+    struct child* child = list_entry(e, struct child, elem);
+    free(child);
+  }
+
   // Close all open files INCLUDING process's executable
   for (int i = 2; i < cur->pcb->curr_fd; i++) {
     struct process* pcb = cur->pcb;
@@ -179,6 +250,14 @@ void process_exit(void) {
       pcb->open_files[i] = NULL;
     }
   }
+
+  free(cur->pcb->lock);
+  free(cur->pcb->cond);
+  free(cur->pcb->children);
+  cur->pcb->cond = NULL;
+  cur->pcb->lock = NULL;
+  cur->pcb->children = NULL;
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pcb->pagedir;
@@ -202,8 +281,6 @@ void process_exit(void) {
   struct process* pcb_to_free = cur->pcb;
   cur->pcb = NULL;
   free(pcb_to_free);
-
-  sema_up(&temporary);
   thread_exit();
 }
 

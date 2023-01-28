@@ -97,7 +97,7 @@ struct thread {
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
 #endif
-
+  int exit_code;
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
 };
@@ -132,6 +132,7 @@ void thread_unblock(struct thread*);
 
 struct thread* thread_current(void);
 tid_t thread_tid(void);
+struct child* child_find(struct list*, tid_t);
 const char* thread_name(void);
 
 void thread_exit(void) NO_RETURN;

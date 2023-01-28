@@ -283,6 +283,17 @@ struct thread* thread_current(void) {
 /* Returns the running thread's tid. */
 tid_t thread_tid(void) { return thread_current()->tid; }
 
+struct child* child_find(struct list* list, pid_t pid) {
+  struct list_elem* e;
+  for (e = list_begin(list); e != list_end(list); e = list_next(e)) {
+    struct child* t = list_entry(e, struct child, elem);
+    if (t->pid == pid) {
+      return t;
+    }
+  }
+  return NULL;
+}
+
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void thread_exit(void) {

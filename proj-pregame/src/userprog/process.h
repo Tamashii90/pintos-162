@@ -1,8 +1,13 @@
 #ifndef USERPROG_PROCESS_H
 #define USERPROG_PROCESS_H
 
+#include "list.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include <stdint.h>
+
+// exit code for an ongoing process
+#define EXIT_ONGOING 99
 
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
@@ -29,6 +34,17 @@ struct process {
   struct thread* main_thread;   /* Pointer to main thread */
   struct file* open_files[131]; /* Table of open files: fd ---> struct file* */
   int curr_fd;                  /* Last allocated fd. Starts at 3. */
+  struct lock* lock;
+  struct condition* cond;
+  struct process* parent_proc;
+  struct list* children;
+};
+
+/* Child element that goes into children list */
+struct child {
+  pid_t pid;
+  int exit_code;
+  struct list_elem elem;
 };
 
 void userprog_init(void);

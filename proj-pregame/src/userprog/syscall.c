@@ -4,6 +4,7 @@
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "list.h"
 #include "userprog/pagedir.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -18,7 +19,15 @@ static void syscall_handler(struct intr_frame*);
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 
 void sys_exit(int status) {
-  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
+  struct process* cur = thread_current()->pcb;
+  struct process* parent = cur->parent_proc;
+  printf("%s: exit(%d)\n", cur->process_name, status);
+
+  lock_acquire(parent->lock);
+  child_find(parent->children, cur->main_thread->tid)->exit_code = status;
+  cond_signal(parent->cond, parent->lock);
+  lock_release(parent->lock);
+
   process_exit();
 }
 
@@ -42,7 +51,7 @@ static void validate_file_name(char* name) {
   char* temp = name;
   size_t i = 0;
   while (true) {
-    if (i == NAME_MAX || temp == NULL || !is_user_vaddr(temp) || pagedir_get_page(pd, temp) == NULL)
+    if (i == 255 || temp == NULL || !is_user_vaddr(temp) || pagedir_get_page(pd, temp) == NULL)
       sys_exit(-1);
     if (*temp == '\0')
       break;
@@ -100,8 +109,8 @@ static int sys_open(char* file_name) {
 void sys_close(int fd) {
   struct process* pcb = thread_current()->pcb;
   struct file* file = pcb->open_files[fd];
-  // No closing STDOUT and STDIN
-  if (fd < 2 || file == NULL) {
+  // No closing process's exe, STDOUT, or STDIN
+  if (fd < 3 || file == NULL) {
     sys_exit(-1);
   }
   file_close(file);
@@ -147,13 +156,15 @@ static pid_t sys_exec(const char* cmd_line) { return process_execute(cmd_line); 
 static int sys_wait(pid_t child_pid) { return process_wait(child_pid); }
 
 static void syscall_handler(struct intr_frame* f) {
+  /* Current syscalls have 4 args max */
+  validate_addr(f->esp, sizeof(int) * 4);
+
   uint32_t* args = ((uint32_t*)f->esp);
-  validate_addr(args, sizeof(int));
   uint32_t call_nr = args[0];
 
   switch (call_nr) {
     case SYS_EXIT: {
-      validate_addr(&args[1], sizeof(uint32_t));
+      // validate_addr(&args[1], sizeof(uint32_t));
       sys_exit((int)args[1]);
       break;
     }
@@ -165,7 +176,7 @@ static void syscall_handler(struct intr_frame* f) {
     }
 
     case SYS_PRACTICE: {
-      validate_addr(&args[1], sizeof(int));
+      // validate_addr(&args[1], sizeof(int));
       f->eax = sys_practice((int)args[1]);
       break;
     }
@@ -177,6 +188,7 @@ static void syscall_handler(struct intr_frame* f) {
     }
 
     case SYS_WAIT: {
+      // validate_addr(&args[1], sizeof(int));
       f->eax = (uint32_t)sys_wait((pid_t)args[1]);
       break;
     }
@@ -200,6 +212,7 @@ static void syscall_handler(struct intr_frame* f) {
     }
 
     case SYS_FILESIZE: {
+      // validate_addr(&args[1], sizeof(int));
       validate_fd((int)args[1]);
       f->eax = (uint32_t)sys_filesize((int)args[1]);
       break;
