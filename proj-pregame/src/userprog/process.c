@@ -199,10 +199,7 @@ static void start_process(void* arg_) {
    exception), returns -1.  If child_pid is invalid or if it was not a
    child of the calling process, or if process_wait() has already
    been successfully called for the given PID, returns -1
-   immediately, without waiting.
-
-   This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
+   immediately, without waiting. */
 int process_wait(pid_t child_pid) {
   struct process* pcb = thread_current()->pcb;
   struct child* child = child_find(pcb->children, child_pid);

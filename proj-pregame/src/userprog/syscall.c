@@ -5,6 +5,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "list.h"
+#include "threads/synch.h"
 #include "userprog/pagedir.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -68,22 +69,31 @@ static void validate_fd(int fd) {
 }
 
 static int sys_write(int fd, void* buffer, unsigned length) {
+  lock_acquire(&file_lock);
   struct process* pcb = thread_current()->pcb;
   struct file* file = pcb->open_files[fd];
+  int res = -99;
   if (fd == STDIN_FILENO) {
+    lock_release(&file_lock);
     sys_exit(-1);
   }
   if (fd == STDOUT_FILENO) {
     putbuf(buffer, length);
+    lock_release(&file_lock);
     return length;
   }
-  return (int)file_write(file, buffer, length);
+  res = file_write(file, buffer, length);
+  lock_release(&file_lock);
+  return res;
 }
 
 static int sys_read(int fd, void* buffer, unsigned size) {
+  lock_acquire(&file_lock);
   struct process* pcb = thread_current()->pcb;
   struct file* file = pcb->open_files[fd];
+  int res = -99;
   if (fd == STDOUT_FILENO || file == NULL) {
+    lock_release(&file_lock);
     return -1;
   }
   if (fd == STDIN_FILENO) {
@@ -92,68 +102,103 @@ static int sys_read(int fd, void* buffer, unsigned size) {
       input = input_getc();
       ((char*)buffer)[i] = input;
     }
+    lock_release(&file_lock);
+    return size;
   }
-  return file_read(file, buffer, size);
+  res = file_read(file, buffer, size);
+  lock_release(&file_lock);
+  return res;
 }
 
 static int sys_open(char* file_name) {
+  lock_acquire(&file_lock);
   struct process* pcb = thread_current()->pcb;
   struct file* file = filesys_open(file_name);
-  if (file == NULL) {
+  int res = -99;
+  if (pcb->curr_fd == MAX_FILES || file == NULL) {
+    lock_release(&file_lock);
     return -1;
   }
   pcb->open_files[pcb->curr_fd] = file;
-  return pcb->curr_fd++;
+  res = pcb->curr_fd++;
+  lock_release(&file_lock);
+  return res;
 }
 
 void sys_close(int fd) {
+  lock_acquire(&file_lock);
   struct process* pcb = thread_current()->pcb;
   struct file* file = pcb->open_files[fd];
   // No closing process's exe, STDOUT, or STDIN
   if (fd < 3 || file == NULL) {
+    lock_release(&file_lock);
     sys_exit(-1);
   }
   file_close(file);
   pcb->open_files[fd] = NULL;
+  lock_release(&file_lock);
 }
 
 static int sys_filesize(int fd) {
+  lock_acquire(&file_lock);
   struct process* pcb = thread_current()->pcb;
   struct file* file = pcb->open_files[fd];
+  int res = -99;
   if (file == NULL) {
+    lock_release(&file_lock);
     return -1;
   }
-  return file_length(file);
+  res = file_length(file);
+  lock_release(&file_lock);
+  return res;
 }
 
 static void sys_seek(int fd, unsigned position) {
+  lock_acquire(&file_lock);
   struct process* pcb = thread_current()->pcb;
   struct file* file = pcb->open_files[fd];
   if (file == NULL || fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+    lock_release(&file_lock);
     sys_exit(-1);
   }
   file_seek(file, position);
+  lock_release(&file_lock);
 }
 
 static unsigned sys_tell(int fd) {
+  lock_acquire(&file_lock);
   struct process* pcb = thread_current()->pcb;
   struct file* file = pcb->open_files[fd];
+  int res = -99;
   if (file == NULL || fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+    lock_release(&file_lock);
     sys_exit(-1);
   }
-  return file_tell(file);
+  res = file_tell(file);
+  lock_release(&file_lock);
+  return res;
 }
 
 static int sys_practice(int val) { return val + 1; }
 
 static bool sys_create(char* file_name, unsigned initial_size) {
-  return filesys_create(file_name, initial_size);
+  lock_acquire(&file_lock);
+  int res = false;
+  res = filesys_create(file_name, initial_size);
+  lock_release(&file_lock);
+  return res;
 }
 
-static bool sys_remove(const char* file) { return filesys_remove(file); }
+static bool sys_remove(const char* file) {
+  lock_acquire(&file_lock);
+  int res = false;
+  res = filesys_remove(file);
+  lock_release(&file_lock);
+  return res;
+}
 
 static pid_t sys_exec(const char* cmd_line) { return process_execute(cmd_line); }
-static int sys_wait(pid_t child_pid) { return process_wait(child_pid); }
+static int sys_wait(pid_t child_pid) { return child_pid == -1 ? -1 : process_wait(child_pid); }
 
 static void syscall_handler(struct intr_frame* f) {
   /* Current syscalls have 4 args max */

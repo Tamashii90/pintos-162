@@ -97,7 +97,6 @@ struct thread {
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
 #endif
-  int exit_code;
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
 };
