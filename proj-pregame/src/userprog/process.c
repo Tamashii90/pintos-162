@@ -29,7 +29,6 @@ struct argument {
 };
 struct semaphore temporary;
 tid_t loaded;
-static size_t process_cnt = 0;
 static bool load_success = true;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
@@ -170,7 +169,6 @@ static void start_process(void* arg_) {
   if (success) {
     /* Place arguments on the stack */
     setup_args(&if_.esp, args, args_len);
-    process_cnt++;
   }
 
   /* Clean up. Exit on failure or jump to userspace */
@@ -574,9 +572,9 @@ static bool setup_stack(void** esp) {
 
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
-    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE * (process_cnt + 1), kpage, true);
+    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
     if (success)
-      *esp = PHYS_BASE - process_cnt * PGSIZE;
+      *esp = PHYS_BASE;
     else
       palloc_free_page(kpage);
   }
