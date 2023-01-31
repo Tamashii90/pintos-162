@@ -26,7 +26,7 @@ void sys_exit(int status) {
 
   lock_acquire(parent->lock);
   child_find(parent->children, cur->main_thread->tid)->exit_code = status;
-  cond_signal(parent->cond, parent->lock);
+  cond_broadcast(parent->cond, parent->lock);
   lock_release(parent->lock);
 
   process_exit();

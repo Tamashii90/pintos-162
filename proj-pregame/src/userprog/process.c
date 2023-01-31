@@ -89,15 +89,13 @@ pid_t process_execute(const char* file_name) {
   /* Create a new thread to execute FILE_NAME. */
   lock_acquire(pcb->lock);
   tid = thread_create(file_name, PRI_DEFAULT, start_process, arg);
-  if (tid == TID_ERROR) {
-    palloc_free_page(fn_copy);
-    lock_release(pcb->lock);
-    return tid;
+  if (tid != TID_ERROR) {
+    while (loaded != tid)
+      cond_wait(pcb->cond, pcb->lock);
+    tid = load_success ? tid : TID_ERROR;
   }
-  while (loaded != tid)
-    cond_wait(pcb->cond, pcb->lock);
-  tid = load_success ? tid : TID_ERROR;
   lock_release(pcb->lock);
+  palloc_free_page(fn_copy);
   return tid;
 }
 
@@ -172,9 +170,6 @@ static void start_process(void* arg_) {
     /* Place arguments on the stack */
     setup_args(&if_.esp, args, args_len);
   }
-
-  /* Clean up. Exit on failure or jump to userspace */
-  palloc_free_page(args);
 
   lock_acquire(arg->parent_proc->lock);
   loaded = t->tid;
