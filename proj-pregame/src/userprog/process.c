@@ -27,7 +27,7 @@ struct argument {
   char* file_name;
   struct process* parent_proc;
 };
-struct semaphore temporary;
+struct lock file_lock;
 tid_t loaded;
 static bool load_success = true;
 static thread_func start_process NO_RETURN;
@@ -63,6 +63,7 @@ void userprog_init(void) {
   lock_init(t->pcb->lock);
   cond_init(t->pcb->cond);
   list_init(t->pcb->children);
+  lock_init(&file_lock);
 }
 
 /* Starts a new thread running a user program loaded from
@@ -70,7 +71,7 @@ void userprog_init(void) {
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
 pid_t process_execute(const char* file_name) {
-  struct argument arg;
+  struct argument* arg = malloc(sizeof(struct argument));
   struct process* pcb = thread_current()->pcb;
   char* fn_copy;
   tid_t tid;
@@ -82,16 +83,17 @@ pid_t process_execute(const char* file_name) {
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
 
-  arg.file_name = fn_copy;
-  arg.parent_proc = pcb;
+  arg->file_name = fn_copy;
+  arg->parent_proc = pcb;
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, &arg);
+  lock_acquire(pcb->lock);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, arg);
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
+    lock_release(pcb->lock);
     return tid;
   }
-  lock_acquire(pcb->lock);
   while (loaded != tid)
     cond_wait(pcb->cond, pcb->lock);
   tid = load_success ? tid : TID_ERROR;
@@ -173,16 +175,19 @@ static void start_process(void* arg_) {
 
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(args);
+
   lock_acquire(arg->parent_proc->lock);
   loaded = t->tid;
   if (!success) {
     load_success = false;
-    cond_signal(arg->parent_proc->cond, arg->parent_proc->lock);
+    cond_broadcast(arg->parent_proc->cond, arg->parent_proc->lock);
     lock_release(arg->parent_proc->lock);
+    free(arg);
     process_exit();
   }
-  cond_signal(arg->parent_proc->cond, arg->parent_proc->lock);
+  cond_broadcast(arg->parent_proc->cond, arg->parent_proc->lock);
   lock_release(arg->parent_proc->lock);
+  free(arg);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -237,6 +242,7 @@ void process_exit(void) {
   }
 
   // Close all open files INCLUDING process's executable
+  lock_acquire(&file_lock);
   for (int i = 2; i < cur->pcb->curr_fd; i++) {
     struct process* pcb = cur->pcb;
     struct file* file = pcb->open_files[i];
@@ -245,6 +251,7 @@ void process_exit(void) {
       pcb->open_files[i] = NULL;
     }
   }
+  lock_release(&file_lock);
 
   free(cur->pcb->lock);
   free(cur->pcb->cond);
