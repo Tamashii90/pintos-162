@@ -6,9 +6,6 @@
 #include "threads/thread.h"
 #include <stdint.h>
 
-// exit code for an ongoing process
-#define EXIT_ONGOING 99
-
 #define MAX_FILES 135
 
 /* Status of an ongoing process */
@@ -39,10 +36,6 @@ struct process {
   struct thread* main_thread;         /* Pointer to main thread */
   struct file* open_files[MAX_FILES]; /* Table of open files: fd ---> struct file* */
   int curr_fd;                        /* Last allocated fd. Starts at 3. */
-  struct lock* lock;
-  struct condition* cond;
-  struct process* parent_proc;
-  struct list* children;
 };
 
 /* Child element that goes into children list */

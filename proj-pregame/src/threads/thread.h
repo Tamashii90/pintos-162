@@ -89,9 +89,8 @@ struct thread {
   uint8_t* stack;               /* Saved stack pointer. */
   int priority;                 /* Priority. */
   struct list_elem allelem;     /* List element for all threads list. */
-  struct condition* cond_exit;  /* Used for exec and wait */
-  struct condition* cond_load;  /* Used for exec and wait */
-  struct lock* lock;            /* Used for exec and wait */
+  struct semaphore* sema_exit;  /* Used for exec and wait */
+  struct semaphore* sema_load;  /* Used for exec and wait */
   struct thread* parent_thread; /* Used for exec and wait */
   struct list* children;        /* Used for exec and wait */
 

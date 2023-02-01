@@ -24,11 +24,9 @@ void sys_exit(int status) {
   struct thread* parent = cur->parent_thread;
   printf("%s: exit(%d)\n", cur->name, status);
 
-  lock_acquire(cur->lock);
   struct child* me = child_find(parent->children, cur->tid);
   me->exit_code = status;
-  cond_signal(parent->cond_exit, cur->lock);
-  lock_release(cur->lock);
+  sema_up(parent->sema_exit);
 
   process_exit();
 }

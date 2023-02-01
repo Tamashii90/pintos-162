@@ -50,18 +50,16 @@ void userprog_init(void) {
      can come at any time and activate our pagedir */
   t->pcb = calloc(sizeof(struct process), 1);
   t->children = malloc(sizeof(struct list));
-  t->cond_load = malloc(sizeof(struct condition));
-  t->cond_exit = malloc(sizeof(struct condition));
-  t->lock = malloc(sizeof(struct lock));
+  t->sema_load = malloc(sizeof(struct semaphore));
+  t->sema_exit = malloc(sizeof(struct semaphore));
 
-  success = t->pcb != NULL && t->children != NULL && t->cond_load != NULL && t->cond_exit != NULL;
+  success = t->pcb != NULL && t->children != NULL && t->sema_load != NULL && t->sema_exit != NULL;
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
   list_init(t->children);
-  cond_init(t->cond_exit);
-  cond_init(t->cond_load);
-  lock_init(t->lock);
+  sema_init(t->sema_exit, 0);
+  sema_init(t->sema_load, 0);
   lock_init(&file_lock);
 }
 
@@ -86,16 +84,14 @@ pid_t process_execute(const char* file_name) {
   aux->parent_thread = thread;
 
   /* Create a new thread to execute FILE_NAME. */
-  lock_acquire(thread->lock);
   tid = thread_create(file_name, PRI_DEFAULT, start_process, aux);
   if (tid == TID_ERROR) {
     return -1;
   }
-  cond_wait(thread->cond_load, thread->lock);
+  sema_down(thread->sema_load);
   tid = load_success ? tid : -1;
   palloc_free_page(fn_copy);
   free(aux);
-  lock_release(thread->lock);
   return tid;
 }
 
@@ -119,10 +115,9 @@ static void start_process(void* aux_) {
 
   if (success) {
     t->children = malloc(sizeof(struct list));
-    t->cond_load = malloc(sizeof(struct semaphore));
-    t->cond_exit = malloc(sizeof(struct semaphore));
-    t->lock = malloc(sizeof(struct lock));
-    success = t->cond_exit != NULL && t->cond_load != NULL && t->children != NULL;
+    t->sema_load = malloc(sizeof(struct semaphore));
+    t->sema_exit = malloc(sizeof(struct semaphore));
+    success = t->sema_exit != NULL && t->sema_load != NULL && t->children != NULL;
   }
 
   if (success) {
@@ -137,10 +132,9 @@ static void start_process(void* aux_) {
     t->pcb->curr_fd = 3; /* 0, 1, and 2 are for STDIN, STDOUT, and process's exe */
 
     t->parent_thread = aux->parent_thread;
+    sema_init(t->sema_exit, 0);
+    sema_init(t->sema_load, 0);
     list_init(t->children);
-    cond_init(t->cond_exit);
-    cond_init(t->cond_load);
-    lock_init(t->lock);
 
     struct child* child = malloc(sizeof(struct child));
     child->pid = thread_tid();
@@ -175,16 +169,13 @@ static void start_process(void* aux_) {
 
   free(file_name);
 
-  lock_acquire(aux->parent_thread->lock);
   if (!success) {
     load_success = false;
-    cond_signal(aux->parent_thread->cond_load, aux->parent_thread->lock);
-    lock_release(aux->parent_thread->lock);
+    sema_up(aux->parent_thread->sema_load);
     process_exit();
   }
   load_success = true;
-  cond_signal(aux->parent_thread->cond_load, aux->parent_thread->lock);
-  lock_release(aux->parent_thread->lock);
+  sema_up(aux->parent_thread->sema_load);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -204,21 +195,17 @@ static void start_process(void* aux_) {
    immediately, without waiting. */
 int process_wait(pid_t child_pid) {
   struct thread* cur = thread_current();
-
-  lock_acquire(cur->lock);
   struct child* child = child_find(cur->children, child_pid);
   int code = 0;
 
   if (child == NULL) {
-    lock_release(cur->lock);
     return -1;
   }
   while (child->exit_code == EXIT_ONGOING)
-    cond_wait(cur->cond_exit, cur->lock);
+    sema_down(cur->sema_exit);
   list_remove(&child->elem);
   code = child->exit_code;
   free(child);
-  lock_release(cur->lock);
   return code;
 }
 
@@ -252,11 +239,11 @@ void process_exit(void) {
   }
   lock_release(&file_lock);
 
-  free(cur->cond_exit);
-  free(cur->cond_load);
+  free(cur->sema_exit);
+  free(cur->sema_load);
   free(cur->children);
-  cur->cond_exit = NULL;
-  cur->cond_load = NULL;
+  cur->sema_exit = NULL;
+  cur->sema_load = NULL;
   cur->children = NULL;
 
   /* Destroy the current process's page directory and switch back
