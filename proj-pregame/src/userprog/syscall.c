@@ -20,14 +20,15 @@ static void syscall_handler(struct intr_frame*);
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 
 void sys_exit(int status) {
-  struct process* cur = thread_current()->pcb;
-  struct process* parent = cur->parent_proc;
-  printf("%s: exit(%d)\n", cur->process_name, status);
+  struct thread* cur = thread_current();
+  struct thread* parent = cur->parent_thread;
+  printf("%s: exit(%d)\n", cur->name, status);
 
-  lock_acquire(parent->lock);
-  child_find(parent->children, cur->main_thread->tid)->exit_code = status;
-  cond_broadcast(parent->cond, parent->lock);
-  lock_release(parent->lock);
+  lock_acquire(cur->lock);
+  struct child* me = child_find(parent->children, cur->tid);
+  me->exit_code = status;
+  cond_signal(parent->cond_exit, cur->lock);
+  lock_release(cur->lock);
 
   process_exit();
 }

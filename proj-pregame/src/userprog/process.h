@@ -11,6 +11,9 @@
 
 #define MAX_FILES 135
 
+/* Status of an ongoing process */
+#define EXIT_ONGOING 99
+
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
 #define MAX_STACK_PAGES (1 << 11)
